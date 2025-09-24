@@ -1,0 +1,17 @@
+==== to install manually ===
+conda create -n pygad_env python=3.10
+conda activate pygad_env
+which pip
+pip install pygad
+python -c "import pygad; print(pygad.__version__)"
+
+
+
+1. Export your environment to YAML
+conda env export --name pygad_env > pygad_env.yml
+
+2. Recreate the environment from YAML
+conda env create -f pygad_env.yml
+
+3. Update an existing environment with YAML
+conda env update -f pygad_env.yml --prune
