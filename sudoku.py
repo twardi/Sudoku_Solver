@@ -273,7 +273,7 @@ class GA4x4SolverCSV:
         self.case_id = case_id # Case index for INITIAL_GRIDS
         self.initial_grid = initial_grid
         self.target_word = target_word
-        
+
         # Log initial configuration
         filled_cells = sum(1 for row in initial_grid for cell in row if cell is not None)
         logger.info(f"Case {case_id}: Initial grid has {filled_cells}/16 cells filled")
@@ -480,7 +480,7 @@ class GA4x4SolverCSV:
             elif ga_instance.generations_completed - self.perfect_seen_at_gen >= STOP_IF_PERFECT_AFTER:
                 logger.info(f"Case {self.case_id}: Early stopping triggered after {STOP_IF_PERFECT_AFTER} generations with perfect fitness")
                 ga_instance.stop_generation = True
-        
+
         # Log progress every 50 generations
         if ga_instance.generations_completed % 50 == 0:
             logger.info(f"Case {self.case_id}: Generation {ga_instance.generations_completed}, Best fitness: {best_f:.4f}")
@@ -742,7 +742,7 @@ if __name__ == "__main__":
     logger.info("Starting Sudoku Solver with Genetic Algorithm")
     logger.info(f"Configuration: {len(INITIAL_GRIDS)} test cases, letters: {LETTERS}, target word: {TARGET_WORD}")
     logger.info(f"GA Parameters: Pop={POP_SIZE}, Gens={NUM_GENERATIONS}, Parents={PARENT_MATING}, Mutation={MUTATION_PERCENT_GENES}%")
-    
+
     try:
         run_all_cases(INITIAL_GRIDS, TARGET_WORD)
         logger.info("All cases completed successfully")
