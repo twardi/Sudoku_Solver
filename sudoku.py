@@ -17,6 +17,7 @@ Author: Chan Man Chak
 
 import os
 import csv
+import logging
 import numpy as np
 import pygad
 from typing import List, Optional, Tuple, Dict, Any
@@ -88,6 +89,17 @@ Mutation options:
 # Output directory
 OUTPUT_DIR = "ga_csv_outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(OUTPUT_DIR, 'sudoku_solver.log')),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # ----------------------------
 # Utilities
@@ -257,9 +269,16 @@ class GA4x4SolverCSV:
         Returns:
             None
         """
+        logger.info(f"Initializing GA solver for case {case_id}")
         self.case_id = case_id # Case index for INITIAL_GRIDS
         self.initial_grid = initial_grid
         self.target_word = target_word
+        
+        # Log initial configuration
+        filled_cells = sum(1 for row in initial_grid for cell in row if cell is not None)
+        logger.info(f"Case {case_id}: Initial grid has {filled_cells}/16 cells filled")
+        if target_word:
+            logger.info(f"Case {case_id}: Target edge word filter: '{target_word}'")
 
         # Flatted fixed clues as ints (0..3) or None
         self.fixed = flatten_grid(initial_grid)
@@ -304,21 +323,31 @@ class GA4x4SolverCSV:
         self.f_initial_grid = os.path.join(OUTPUT_DIR, f"case_{case_id:02d}__initial_grid.csv")
 
         # Prepare population CSV with header
-        with open(self.f_populations, "w", newline="", encoding="utf-8") as fp:
-            writer = csv.DictWriter(fp, fieldnames=(
-                ["case_id","generation","chromosome_index","fitness"]
-                + [f"c{r}{c}" for r in range(4) for c in range(4)]
-                + ["row1","row2","row3","row4"]
-            ))
-            writer.writeheader() # case_id,generation,chromosome_index,fitness,c00,c01,c02,c03,c10,c11,c12,c13,c20,c21,c22,c23,c30,c31,c32,c33,row1,row2,row3,row4
+        try:
+            with open(self.f_populations, "w", newline="", encoding="utf-8") as fp:
+                writer = csv.DictWriter(fp, fieldnames=(
+                    ["case_id","generation","chromosome_index","fitness"]
+                    + [f"c{r}{c}" for r in range(4) for c in range(4)]
+                    + ["row1","row2","row3","row4"]
+                ))
+                writer.writeheader() # case_id,generation,chromosome_index,fitness,c00,c01,c02,c03,c10,c11,c12,c13,c20,c21,c22,c23,c30,c31,c32,c33,row1,row2,row3,row4
+            logger.info(f"Case {case_id}: Created populations CSV file: {self.f_populations}")
+        except IOError as e:
+            logger.error(f"Case {case_id}: Failed to create populations CSV file: {e}")
+            raise
 
         # Write initial grid (letters, with '.' for blanks)
-        with open(self.f_initial_grid, "w", newline="", encoding="utf-8") as fp:
-            writer = csv.writer(fp)
-            writer.writerow(["Initial Grid (letters; '.' denotes blank)"])
-            for r in range(4):
-                writer.writerow([self.initial_grid[r][c] if self.initial_grid[r][c] is not None else '.'
-                                 for c in range(4)])
+        try:
+            with open(self.f_initial_grid, "w", newline="", encoding="utf-8") as fp:
+                writer = csv.writer(fp)
+                writer.writerow(["Initial Grid (letters; '.' denotes blank)"])
+                for r in range(4):
+                    writer.writerow([self.initial_grid[r][c] if self.initial_grid[r][c] is not None else '.'
+                                     for c in range(4)])
+            logger.info(f"Case {case_id}: Created initial grid CSV file: {self.f_initial_grid}")
+        except IOError as e:
+            logger.error(f"Case {case_id}: Failed to create initial grid CSV file: {e}")
+            raise
 
     def _build_gene_space_option(self, fixed: List[Optional[int]]) -> List[List[int]]:
         """
@@ -398,6 +427,7 @@ class GA4x4SolverCSV:
             key = tuple(int(x) for x in solution)
             if key not in self.perfect_solutions:
                 self.perfect_solutions[key] = ga_instance.generations_completed # record which generation first saw this perfect
+                logger.info(f"Case {self.case_id}: Perfect solution found in generation {ga_instance.generations_completed}")
 
         return fitness
 
@@ -446,8 +476,14 @@ class GA4x4SolverCSV:
         if best_f == 1.0:
             if self.perfect_seen_at_gen is None:
                 self.perfect_seen_at_gen = ga_instance.generations_completed
+                logger.info(f"Case {self.case_id}: First perfect fitness achieved in generation {ga_instance.generations_completed}")
             elif ga_instance.generations_completed - self.perfect_seen_at_gen >= STOP_IF_PERFECT_AFTER:
+                logger.info(f"Case {self.case_id}: Early stopping triggered after {STOP_IF_PERFECT_AFTER} generations with perfect fitness")
                 ga_instance.stop_generation = True
+        
+        # Log progress every 50 generations
+        if ga_instance.generations_completed % 50 == 0:
+            logger.info(f"Case {self.case_id}: Generation {ga_instance.generations_completed}, Best fitness: {best_f:.4f}")
 
     def _collect_perfect_solutions_letters(self) -> List[List[List[str]]]:
         """
@@ -525,6 +561,7 @@ class GA4x4SolverCSV:
         6. Return summary dict
         """
         # Configure and run GA
+        logger.info(f"Case {self.case_id}: Starting GA with {NUM_GENERATIONS} generations, population size {POP_SIZE}")
         ga = pygad.GA(
             num_generations=NUM_GENERATIONS,
             num_parents_mating=PARENT_MATING,
@@ -541,50 +578,78 @@ class GA4x4SolverCSV:
             on_generation=self._on_generation
         )
 
-        ga.run()
+        try:
+            ga.run()
+            logger.info(f"Case {self.case_id}: GA execution completed after {ga.generations_completed} generations")
+        except Exception as e:
+            logger.error(f"Case {self.case_id}: GA execution failed: {e}")
+            raise
         best_sol, best_fit, _ = ga.best_solution(pop_fitness=ga.last_generation_fitness)
         best_grid_letters = decode_grid(to_grid16(best_sol))
+        logger.info(f"Case {self.case_id}: Final best fitness: {best_fit:.4f}")
 
         # Save best fitness history
-        with open(self.f_best_hist, "w", newline="", encoding="utf-8") as fp:
-            writer = csv.writer(fp)
-            writer.writerow(["case_id","generation","best_fitness"])
-            for i, v in enumerate(self.best_fitness_history, start=1):
-                writer.writerow([self.case_id, i, v])
+        try:
+            with open(self.f_best_hist, "w", newline="", encoding="utf-8") as fp:
+                writer = csv.writer(fp)
+                writer.writerow(["case_id","generation","best_fitness"])
+                for i, v in enumerate(self.best_fitness_history, start=1):
+                    writer.writerow([self.case_id, i, v])
+            logger.info(f"Case {self.case_id}: Saved fitness history to {self.f_best_hist}")
+        except IOError as e:
+            logger.error(f"Case {self.case_id}: Failed to save fitness history: {e}")
+            raise
 
         # Save all perfect solutions (if any)
         all_perfect = self._collect_perfect_solutions_letters()
+        logger.info(f"Case {self.case_id}: Found {len(all_perfect)} perfect solutions")
         if all_perfect:
-            with open(self.f_solutions_all, "w", newline="", encoding="utf-8") as fp:
-                writer = csv.writer(fp)
-                writer.writerow(["case_id","solution_index","row1","row2","row3","row4"])
-                for i, g in enumerate(all_perfect, start=1):
-                    rows = [''.join(g[0]), ''.join(g[1]), ''.join(g[2]), ''.join(g[3])]
-                    writer.writerow([self.case_id, i, *rows])
+            try:
+                with open(self.f_solutions_all, "w", newline="", encoding="utf-8") as fp:
+                    writer = csv.writer(fp)
+                    writer.writerow(["case_id","solution_index","row1","row2","row3","row4"])
+                    for i, g in enumerate(all_perfect, start=1):
+                        rows = [''.join(g[0]), ''.join(g[1]), ''.join(g[2]), ''.join(g[3])]
+                        writer.writerow([self.case_id, i, *rows])
+                logger.info(f"Case {self.case_id}: Saved {len(all_perfect)} perfect solutions to {self.f_solutions_all}")
+            except IOError as e:
+                logger.error(f"Case {self.case_id}: Failed to save perfect solutions: {e}")
+                raise
 
         # Save edge-filtered perfect solutions (if requested)
         edge_filtered = self._filter_by_edge_word(all_perfect)
         if self.target_word is not None:
-            with open(self.f_solutions_edge, "w", newline="", encoding="utf-8") as fp:
-                writer = csv.writer(fp)
-                writer.writerow(["case_id","target_word","solution_index","row1","row2","row3","row4"])
-                if edge_filtered:
-                    for i, g in enumerate(edge_filtered, start=1):
-                        rows = [''.join(g[0]), ''.join(g[1]), ''.join(g[2]), ''.join(g[3])]
-                        writer.writerow([self.case_id, self.target_word, i, *rows])
-                else:
-                    # still create an empty file with header
-                    pass
+            logger.info(f"Case {self.case_id}: Found {len(edge_filtered)} solutions with target word '{self.target_word}' on edges")
+            try:
+                with open(self.f_solutions_edge, "w", newline="", encoding="utf-8") as fp:
+                    writer = csv.writer(fp)
+                    writer.writerow(["case_id","target_word","solution_index","row1","row2","row3","row4"])
+                    if edge_filtered:
+                        for i, g in enumerate(edge_filtered, start=1):
+                            rows = [''.join(g[0]), ''.join(g[1]), ''.join(g[2]), ''.join(g[3])]
+                            writer.writerow([self.case_id, self.target_word, i, *rows])
+                    else:
+                        # still create an empty file with header
+                        pass
+                logger.info(f"Case {self.case_id}: Saved edge-filtered solutions to {self.f_solutions_edge}")
+            except IOError as e:
+                logger.error(f"Case {self.case_id}: Failed to save edge-filtered solutions: {e}")
+                raise
 
         # Save the single best solution (even if imperfect)
-        with open(self.f_best_solution, "w", newline="", encoding="utf-8") as fp:
-            writer = csv.writer(fp)
-            writer.writerow(["case_id","generations_completed","best_fitness"])
-            writer.writerow([self.case_id, ga.generations_completed, float(best_fit)])
-            writer.writerow([])
-            writer.writerow(["Best Grid (letters)"])
-            for r in best_grid_letters:
-                writer.writerow(r)
+        try:
+            with open(self.f_best_solution, "w", newline="", encoding="utf-8") as fp:
+                writer = csv.writer(fp)
+                writer.writerow(["case_id","generations_completed","best_fitness"])
+                writer.writerow([self.case_id, ga.generations_completed, float(best_fit)])
+                writer.writerow([])
+                writer.writerow(["Best Grid (letters)"])
+                for r in best_grid_letters:
+                    writer.writerow(r)
+            logger.info(f"Case {self.case_id}: Saved best solution to {self.f_best_solution}")
+        except IOError as e:
+            logger.error(f"Case {self.case_id}: Failed to save best solution: {e}")
+            raise
 
         return {
             "case_id": self.case_id,
@@ -622,36 +687,49 @@ def run_all_cases(initial_grids: List[List[List[Optional[str]]]], target_word: O
     2. Optionally write an index CSV summarizing all cases
     3. Return None
     """
+    logger.info(f"Starting GA solver for {len(initial_grids)} cases with target word: {target_word}")
     results = []
     for idx, grid in enumerate(initial_grids, start=1):
+        logger.info(f"Processing case {idx}/{len(initial_grids)}")
         solver = GA4x4SolverCSV(case_id=idx, initial_grid=grid, target_word=target_word)
         out = solver.run(seed=RANDOM_SEED)
         results.append(out)
+        logger.info(f"Case {idx} completed: {out['generations_completed']} generations, fitness {out['best_fitness']:.4f}")
 
     # Optional: write an index file
     index_path = os.path.join(OUTPUT_DIR, "index__cases_summary.csv")
-    with open(index_path, "w", newline="", encoding="utf-8") as fp:
-        writer = csv.writer(fp)
-        writer.writerow(["case_id","generations_completed","best_fitness",
-                         "all_perfect_count","edge_filtered_count"])
-        for i, r in enumerate(results, start=1):
-            writer.writerow([i, r["generations_completed"], r["best_fitness"],
-                             r["all_perfect_count"], r["edge_filtered_count"]])
+    try:
+        with open(index_path, "w", newline="", encoding="utf-8") as fp:
+            writer = csv.writer(fp)
+            writer.writerow(["case_id","generations_completed","best_fitness",
+                             "all_perfect_count","edge_filtered_count"])
+            for i, r in enumerate(results, start=1):
+                writer.writerow([i, r["generations_completed"], r["best_fitness"],
+                                 r["all_perfect_count"], r["edge_filtered_count"]])
+        logger.info(f"Saved summary index to {index_path}")
+    except IOError as e:
+        logger.error(f"Failed to save summary index: {e}")
+        raise
     
     # Plot curves
+    logger.info("Generating fitness plots for all cases")
     for r in results:
         case_id = r["case_id"]
-
-        # Fitness curve
-        hist = r.get("best_fitness_history") or r["GA_instance"].best_solutions_fitness
-        fig = plt.figure(figsize=(8, 4))
-        plt.plot(hist)
-        plt.title(f"Case {case_id:02d} — Fitness per Generation")
-        plt.xlabel("Generation")
-        plt.ylabel("Best Fitness")
-        plt.tight_layout()
-        fig.savefig(f"case_{case_id:02d}__fitness.png", dpi=200)
-        plt.close(fig)
+        try:
+            # Fitness curve
+            hist = r.get("best_fitness_history") or r["GA_instance"].best_solutions_fitness
+            fig = plt.figure(figsize=(8, 4))
+            plt.plot(hist)
+            plt.title(f"Case {case_id:02d} — Fitness per Generation")
+            plt.xlabel("Generation")
+            plt.ylabel("Best Fitness")
+            plt.tight_layout()
+            plot_filename = f"case_{case_id:02d}__fitness.png"
+            fig.savefig(plot_filename, dpi=200)
+            plt.close(fig)
+            logger.info(f"Saved fitness plot for case {case_id}: {plot_filename}")
+        except Exception as e:
+            logger.error(f"Failed to generate fitness plot for case {case_id}: {e}")
 
         # New-solution rate curve
         #plt.figure(figsize=(8, 4))
@@ -661,4 +739,13 @@ def run_all_cases(initial_grids: List[List[List[Optional[str]]]], target_word: O
         #plt.close()
 
 if __name__ == "__main__":
-    run_all_cases(INITIAL_GRIDS, TARGET_WORD)
+    logger.info("Starting Sudoku Solver with Genetic Algorithm")
+    logger.info(f"Configuration: {len(INITIAL_GRIDS)} test cases, letters: {LETTERS}, target word: {TARGET_WORD}")
+    logger.info(f"GA Parameters: Pop={POP_SIZE}, Gens={NUM_GENERATIONS}, Parents={PARENT_MATING}, Mutation={MUTATION_PERCENT_GENES}%")
+    
+    try:
+        run_all_cases(INITIAL_GRIDS, TARGET_WORD)
+        logger.info("All cases completed successfully")
+    except Exception as e:
+        logger.error(f"Execution failed: {e}")
+        raise
