@@ -73,6 +73,9 @@ STOP_IF_PERFECT_AFTER = 15
 RANDOM_SEED = 42
 # Number of best solutions to carry over to next generation
 KEEP_ELITISM = int(POP_SIZE/10)
+# Penalty for each edge that doesn't match the target word
+PENALTY_EDGE = 1
+
 
 """
 Crossover options:
@@ -421,14 +424,13 @@ class GA4x4SolverCSV:
         
             if self.target_word not in edge_words:
                 #initial penalty
-                violations_edge += 4  # penalty if target word not on any edge
+                violations_edge += 4 * PENALTY_EDGE # penalty if target word not on any edge
 
                 # additional penalty for each edge that doesn't match
                 for w in edge_words:
-                    #print(w)
                     for index, char in enumerate(w):
                         if char != self.target_word[index]:
-                            violations_edge += 1
+                            violations_edge += PENALTY_EDGE
 
         fitness = 1.0 / (1.0 + violations + violations_edge)
 
