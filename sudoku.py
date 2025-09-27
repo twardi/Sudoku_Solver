@@ -412,6 +412,7 @@ class GA4x4SolverCSV:
             violations += (4 - unique_count(block))
 
         # edge word check (optional)
+        violations_edge = 0
         if self.target_word is None:
             pass
         else:
@@ -420,16 +421,16 @@ class GA4x4SolverCSV:
         
             if self.target_word not in edge_words:
                 #initial penalty
-                violations += 4  # penalty if target word not on any edge
+                violations_edge += 4  # penalty if target word not on any edge
 
                 # additional penalty for each edge that doesn't match
                 for w in edge_words:
                     #print(w)
                     for index, char in enumerate(w):
                         if char != self.target_word[index]:
-                            violations += 1
+                            violations_edge += 1
 
-        fitness = 1.0 / (1.0 + violations)
+        fitness = 1.0 / (1.0 + violations + violations_edge)
 
         # Track perfects
         if fitness == 1.0:
