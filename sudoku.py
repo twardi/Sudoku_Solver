@@ -21,6 +21,8 @@ import logging
 import numpy as np
 import pygad
 from typing import List, Optional, Tuple, Dict, Any
+import matplotlib
+matplotlib.use("Agg")  # Use non-interactive backend to prevent plots from showing
 import matplotlib.pyplot as plt
 
 # ----------------------------
@@ -56,9 +58,9 @@ INITIAL_GRIDS = [
 
 # GA hyperparameters
 # How many candidate grids per generation
-POP_SIZE = 80
+POP_SIZE = 50
 # The GA stops here unless early-stopped first
-NUM_GENERATIONS = 1000 #200
+NUM_GENERATIONS = 800 #200
 # How many parents are chosen to breed each generation
 PARENT_MATING = int(POP_SIZE/2)
 # CROSSOVER options
@@ -290,14 +292,16 @@ class GA4x4SolverCSV:
         # Gene space for PyGAD (list of 16 lists)
         self.gene_space = self._build_gene_space_option(self.fixed)
 
+        self._reset_logs()
+
         # For tracking perfect solutions
-        self.perfect_solutions: Dict[Tuple[int, ...], int] = {}  # chrom -> first gen seen
+        # self.perfect_solutions: Dict[Tuple[int, ...], int] = {}  # chrom -> first gen seen
             # perfect_solutions example: {(0,1,2,3,3,2,1,0,1,0,3,2,2,3,0,1): 57}
             # First solution is (0,1,2,3,3,2,1,0,1,0,3,2,2,3,0,1)
             # First perfect solution appeared in generation 57.
 
         # History of best fitness per generation
-        self.best_fitness_history: List[float] = []
+        # self.best_fitness_history: List[float] = []
             # best_fitness_history example: 
             #self.best_fitness_history = [
             #    0.20,  # best fitness in generation 1
@@ -314,7 +318,7 @@ class GA4x4SolverCSV:
 
         # For early stopping if perfect fitness persists
         # to track when we first saw a perfect fitness
-        self.perfect_seen_at_gen: Optional[int] = None
+        # self.perfect_seen_at_gen: Optional[int] = None
             # Example: If we first saw a perfect fitness in generation 50,
             # and STOP_IF_PERFECT_AFTER is 15, we will stop if we reach generation 65
             # without losing the perfect fitness.
@@ -353,6 +357,12 @@ class GA4x4SolverCSV:
         except IOError as e:
             logger.error(f"Case {case_id}: Failed to create initial grid CSV file: {e}")
             raise
+
+    def _reset_logs(self):
+        """Reset case-specific tracking state (called at init and run)."""
+        self.perfect_solutions: Dict[Tuple[int, ...], int] = {}
+        self.best_fitness_history: List[float] = []
+        self.perfect_seen_at_gen: Optional[int] = None
 
     def _build_gene_space_option(self, fixed: List[Optional[int]]) -> List[List[int]]:
         """
@@ -538,6 +548,7 @@ class GA4x4SolverCSV:
         tw = self.target_word
         return [g for g in grids if any(w == tw for w in edges_as_words(g))]
 
+
     def run(self, seed: int = RANDOM_SEED) -> Dict[str, Any]:
         """
         Run the GA solver and save all outputs to CSV files.
@@ -572,6 +583,9 @@ class GA4x4SolverCSV:
         5. Save best solution (even if imperfect) to CSV
         6. Return summary dict
         """
+
+        self._reset_logs()
+
         # Configure and run GA
         logger.info(f"Case {self.case_id}: Starting GA with {NUM_GENERATIONS} generations, population size {POP_SIZE}")
         ga = pygad.GA(
@@ -589,7 +603,34 @@ class GA4x4SolverCSV:
             random_seed=seed,
             on_generation=self._on_generation,
             keep_elitism=KEEP_ELITISM,
+
+            # required for new soltuion rate plots
+            save_solutions=True,
+            save_best_solutions=True,
         )
+
+        """
+        ga = pygad.GA(
+            num_generations=NUM_GENERATIONS,
+            num_parents_mating=PARENT_MATING,
+            fitness_func=self._fitness,
+            sol_per_pop=POP_SIZE,
+            num_genes=16,
+            gene_space=self.gene_space,
+            parent_selection_type="tournament",
+            K_tournament=3,
+            crossover_type="uniform",
+            crossover_probability=0.8,
+            mutation_type="random",
+            mutation_percent_genes=20,
+            keep_elitism=KEEP_ELITISM,
+            on_generation=self._on_generation,
+
+            # required for new plots
+            save_solutions=True,
+            save_best_solutions=True,
+        )
+        """
 
         try:
             ga.run()
@@ -679,6 +720,7 @@ class GA4x4SolverCSV:
                 "best_solution": self.f_best_solution,
                 "initial_grid": self.f_initial_grid,
             },
+            "best_fitness_history": self.best_fitness_history,  # <--- added
             "GA_instance": ga,  # for possible further analysis 
         }
 
@@ -725,12 +767,14 @@ def run_all_cases(initial_grids: List[List[List[Optional[str]]]], target_word: O
         raise
     
     # Plot curves
-    logger.info("Generating fitness plots for all cases")
+    logger.info("Generating Fitness/Solution rate/Genes plots for all cases")
     for r in results:
         case_id = r["case_id"]
+        ga = r["GA_instance"]
+
         try:
-            # Fitness curve
-            hist = r.get("best_fitness_history") or r["GA_instance"].best_solutions_fitness
+            # Fitness curve (your current code)
+            hist = r.get("best_fitness_history") or ga.best_solutions_fitness
             fig = plt.figure(figsize=(8, 4))
             plt.plot(hist)
             plt.title(f"Case {case_id:02d} — Fitness per Generation")
@@ -741,8 +785,43 @@ def run_all_cases(initial_grids: List[List[List[Optional[str]]]], target_word: O
             fig.savefig(plot_filename, dpi=200)
             plt.close(fig)
             logger.info(f"Saved fitness plot for case {case_id}: {plot_filename}")
+
+            # --- New: New solution rate ---
+            try:
+                fig = ga.plot_new_solution_rate(
+                    title=f"Case {case_id:02d} — New Solution Rate",
+                    xlabel="Generation",
+                    ylabel="New Solutions",
+                    plot_type="plot",
+                    color="#FF5733",
+                )
+                plot_filename = f"case_{case_id:02d}__new_solution_rate.png"
+                fig.savefig(plot_filename, dpi=200)
+                plt.close(fig)
+                logger.info(f"Saved new solution rate plot for case {case_id}: {plot_filename}")
+            except Exception as e:
+                logger.warning(f"Case {case_id}: Could not plot new solution rate: {e}")
+
+            # --- New: Genes plot ---
+            try:
+                fig = ga.plot_genes(
+                    title=f"Case {case_id:02d} — Gene Evolution",
+                    xlabel="Generation",
+                    ylabel="Gene Value",
+                    graph_type="plot",     # or "histogram" / "boxplot"
+                    plot_type="plot",      # "plot" / "scatter" / "bar"
+                    solutions="best",      # focus on best solutions
+                    color="#3870FF",
+                )
+                plot_filename = f"case_{case_id:02d}__genes.png"
+                fig.savefig(plot_filename, dpi=200)
+                plt.close(fig)
+                logger.info(f"Saved genes plot for case {case_id}: {plot_filename}")
+            except Exception as e:
+                logger.warning(f"Case {case_id}: Could not plot genes: {e}")
+
         except Exception as e:
-            logger.error(f"Failed to generate fitness plot for case {case_id}: {e}")
+            logger.error(f"Failed to generate plots for case {case_id}: {e}")
 
         # New-solution rate curve
         #plt.figure(figsize=(8, 4))
