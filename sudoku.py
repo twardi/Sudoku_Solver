@@ -60,7 +60,7 @@ POP_SIZE = 80
 # The GA stops here unless early-stopped first
 NUM_GENERATIONS = 1000 #200
 # How many parents are chosen to breed each generation
-PARENT_MATING = 40
+PARENT_MATING = int(POP_SIZE/2)
 # CROSSOVER options
 CROSSOVER_TYPE = "single_point"
 # MUTATION options
@@ -71,6 +71,8 @@ MUTATION_PERCENT_GENES = 15
 STOP_IF_PERFECT_AFTER = 15
 # For reproducible
 RANDOM_SEED = 42
+# Number of best solutions to carry over to next generation
+KEEP_ELITISM = int(POP_SIZE/10)
 
 """
 Crossover options:
@@ -409,16 +411,23 @@ class GA4x4SolverCSV:
             block = [int(grid[r, c]) for r in rs for c in cs]
             violations += (4 - unique_count(block))
 
-
         # edge word check (optional)
-        #if self.target_word is None:
-        #    pass
-        #else:
-        #    grid_letters = decode_grid(grid)
-        #    edge_words = edges_as_words(grid_letters)
-        #
-        #    if self.target_word not in edge_words:
-        #        violations += 4  # penalty if target word not on any edge
+        if self.target_word is None:
+            pass
+        else:
+            grid_letters = decode_grid(grid)
+            edge_words = edges_as_words(grid_letters)
+        
+            if self.target_word not in edge_words:
+                #initial penalty
+                violations += 4  # penalty if target word not on any edge
+
+                # additional penalty for each edge that doesn't match
+                for w in edge_words:
+                    #print(w)
+                    for index, char in enumerate(w):
+                        if char != self.target_word[index]:
+                            violations += 1
 
         fitness = 1.0 / (1.0 + violations)
 
@@ -575,7 +584,8 @@ class GA4x4SolverCSV:
             mutation_type=MUTATION_TYPE,
             mutation_percent_genes=MUTATION_PERCENT_GENES,
             random_seed=seed,
-            on_generation=self._on_generation
+            on_generation=self._on_generation,
+            keep_elitism=KEEP_ELITISM,
         )
 
         try:
